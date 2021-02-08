@@ -170,7 +170,7 @@ public abstract class CriteriaBaseRepository<T> {
                 predicate = criteriaBuilder.in(getPath(fieldName)).value(value);
                 break;
             case NOT_IN:
-                predicate = criteriaBuilder.not(getPath(fieldName)).in(value);
+                predicate = criteriaBuilder.in(getPath(fieldName)).value(value).not();
                 break;
             case DIFFERENT:
                 predicate = criteriaBuilder.notEqual(getPath(fieldName), value);
