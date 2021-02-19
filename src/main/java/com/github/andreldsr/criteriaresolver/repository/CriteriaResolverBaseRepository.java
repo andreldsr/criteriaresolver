@@ -5,11 +5,7 @@ import com.github.andreldsr.criteriaresolver.searchobject.SearchObject;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import javax.persistence.EntityManager;
 import javax.persistence.Query;
@@ -23,18 +19,17 @@ import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 import javax.persistence.criteria.Selection;
 
-public abstract class CriteriaBaseRepository<T> {
+public abstract class CriteriaResolverBaseRepository<T> {
     EntityManager em;
 
     private Class<T> c;
     private CriteriaBuilder criteriaBuilder;
-    private CriteriaQuery<?> genericCriteria;
     private CriteriaQuery<T> criteria;
     private Root<T> root;
     private Map<String, Join> joinMap;
 
     @SuppressWarnings("unchecked")
-    public CriteriaBaseRepository(EntityManager entityManager){
+    public CriteriaResolverBaseRepository(EntityManager entityManager){
         ParameterizedType genericSuperclass = (ParameterizedType) getClass().getGenericSuperclass();
         this.c = (Class<T>) genericSuperclass.getActualTypeArguments()[0];
         this.em = entityManager;
@@ -49,13 +44,13 @@ public abstract class CriteriaBaseRepository<T> {
         return this.getQuery(searchObject).getSingleResult();
     }
 
-    @SuppressWarnings("unchecked")
-    public Query getGenericQuery(SearchObject searchObject, Class clazz){
+    public <D> TypedQuery<D> getGenericQuery(SearchObject searchObject, Class<D> clazz){
+        CriteriaQuery<D> genericCriteria;
         criteriaBuilder = em.getCriteriaBuilder();
         genericCriteria = criteriaBuilder.createQuery(clazz);
         root = genericCriteria.from(c);
         createJoins(searchObject);
-        setProjections(clazz);
+        setProjections(genericCriteria, clazz);
         List<Predicate> predicates = getPredicates(root, searchObject);
         genericCriteria.where(predicates.toArray(new Predicate[0]));
         return em.createQuery(genericCriteria);
@@ -71,7 +66,7 @@ public abstract class CriteriaBaseRepository<T> {
         return em.createQuery(criteria);
     }
 
-    private void setProjections(Class clazz) {
+    private void setProjections(CriteriaQuery genericCriteria, Class clazz) {
         List<String> projections = new ArrayList();
         for(Field field: clazz.getDeclaredFields()) {
             projections.add(getProjection(field));
@@ -84,7 +79,7 @@ public abstract class CriteriaBaseRepository<T> {
             selectionList.add(getPath(projection));
         }
         selectionArray = new Selection[selectionList.size()];
-        genericCriteria.multiselect((Selection<?>[]) selectionList.toArray(selectionArray));
+        genericCriteria.multiselect(selectionList.toArray(selectionArray));
     }
 
     private String getProjection(Field field) {
