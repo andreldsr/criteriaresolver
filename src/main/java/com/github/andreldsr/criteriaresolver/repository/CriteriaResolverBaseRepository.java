@@ -66,6 +66,17 @@ public abstract class CriteriaResolverBaseRepository<T> {
         return em.createQuery(criteria);
     }
 
+    public Long getCount(SearchObject searchObject){
+        criteriaBuilder = em.getCriteriaBuilder();
+        CriteriaQuery<Long> query = criteriaBuilder.createQuery(Long.class);
+        root = query.from(c);
+        createJoins(searchObject);
+        List<Predicate> predicates = getPredicates(root, searchObject);
+        query.where(predicates.toArray(new Predicate[0]));
+        query.select(criteriaBuilder.count(root));
+        return em.createQuery(query).getSingleResult();
+    }
+
     private void setProjections(CriteriaQuery genericCriteria, Class clazz) {
         List<String> projections = new ArrayList();
         for(Field field: clazz.getDeclaredFields()) {
