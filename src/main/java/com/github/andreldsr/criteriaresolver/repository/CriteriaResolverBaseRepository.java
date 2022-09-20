@@ -1,30 +1,22 @@
 package com.github.andreldsr.criteriaresolver.repository;
+
 import com.github.andreldsr.criteriaresolver.annotation.CriteriaField;
 import com.github.andreldsr.criteriaresolver.annotation.ProjectionField;
 import com.github.andreldsr.criteriaresolver.searchobject.SearchObject;
+import org.hibernate.query.criteria.internal.path.PluralAttributePath;
 
+import javax.persistence.EntityManager;
+import javax.persistence.TypedQuery;
+import javax.persistence.criteria.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.util.*;
-
-import javax.persistence.EntityManager;
-import javax.persistence.Query;
-import javax.persistence.TypedQuery;
-import javax.persistence.criteria.CriteriaBuilder;
-import javax.persistence.criteria.CriteriaQuery;
-import javax.persistence.criteria.Join;
-import javax.persistence.criteria.JoinType;
-import javax.persistence.criteria.Path;
-import javax.persistence.criteria.Predicate;
-import javax.persistence.criteria.Root;
-import javax.persistence.criteria.Selection;
 
 public abstract class CriteriaResolverBaseRepository<T> {
     EntityManager em;
 
     private Class<T> c;
     private CriteriaBuilder criteriaBuilder;
-    private CriteriaQuery<T> criteria;
     private Root<T> root;
     private Map<String, Join> joinMap;
 
@@ -45,40 +37,48 @@ public abstract class CriteriaResolverBaseRepository<T> {
     }
 
     public <D> TypedQuery<D> getGenericQuery(SearchObject searchObject, Class<D> clazz){
-        CriteriaQuery<D> genericCriteria;
-        criteriaBuilder = em.getCriteriaBuilder();
-        genericCriteria = criteriaBuilder.createQuery(clazz);
-        root = genericCriteria.from(c);
-        createJoins(searchObject);
-        setProjections(genericCriteria, clazz);
-        List<Predicate> predicates = getPredicates(root, searchObject);
-        genericCriteria.where(predicates.toArray(new Predicate[0]));
-        return em.createQuery(genericCriteria);
+        return buildQuery(searchObject, clazz);
     }
 
     public TypedQuery<T> getQuery(SearchObject searchObject){
-        criteriaBuilder = em.getCriteriaBuilder();
-        criteria = criteriaBuilder.createQuery(c);
-        root = criteria.from(c);
+        return buildQuery(searchObject, c);
+    }
+
+    private <D> TypedQuery<D> buildQuery(SearchObject searchObject, Class<D> clazz){
+        CriteriaQuery<D> criteriaQuery = createQuery(searchObject, clazz);
+        return em.createQuery(criteriaQuery);
+    }
+
+    private <D> CriteriaQuery<D> createQuery(SearchObject searchObject, Class<D> clazz){
+        return createQuery(searchObject, clazz, true);
+    }
+
+    private <D> CriteriaQuery<D> createQuery(SearchObject searchObject, Class<D> clazz, boolean createProjections) {
+        CriteriaQuery<D> criteriaQuery = initializeQuery(clazz);
         createJoins(searchObject);
+        if(createProjections) setProjections(criteriaQuery, clazz);
         List<Predicate> predicates = getPredicates(root, searchObject);
-        criteria.where(predicates.toArray(new Predicate[0]));
-        return em.createQuery(criteria);
+        criteriaQuery.where(predicates.toArray(new Predicate[0]));
+        return criteriaQuery;
+    }
+
+    private <D> CriteriaQuery<D> initializeQuery(Class<D> clazz) {
+        CriteriaQuery<D> criteriaQuery;
+        criteriaBuilder = em.getCriteriaBuilder();
+        criteriaQuery = criteriaBuilder.createQuery(clazz);
+        root = criteriaQuery.from(c);
+        return criteriaQuery;
     }
 
     public Long getCount(SearchObject searchObject){
-        criteriaBuilder = em.getCriteriaBuilder();
-        CriteriaQuery<Long> query = criteriaBuilder.createQuery(Long.class);
-        root = query.from(c);
-        createJoins(searchObject);
-        List<Predicate> predicates = getPredicates(root, searchObject);
-        query.where(predicates.toArray(new Predicate[0]));
+        CriteriaQuery<Long> query = createQuery(searchObject, Long.class, false);
         query.select(criteriaBuilder.count(root));
         return em.createQuery(query).getSingleResult();
     }
 
     private void setProjections(CriteriaQuery genericCriteria, Class clazz) {
         List<String> projections = new ArrayList();
+        if(c == clazz) return;
         for(Field field: clazz.getDeclaredFields()) {
             projections.add(getProjection(field));
         }
@@ -108,6 +108,7 @@ public abstract class CriteriaResolverBaseRepository<T> {
         Set<String> keySet = joins.keySet();
         for (String key : keySet) {
             joinMap.put(key, root.join(key, joins.get(key)));
+            joinMap.get(key).alias(key);
         }
     }
 
@@ -142,9 +143,24 @@ public abstract class CriteriaResolverBaseRepository<T> {
     private Path getPath(String attributeName) {
         Path path = root;
         for (String part : attributeName.split("\\.")) {
-            path = path.get(part);
+            Path newPath = path.get(part);
+            path = checkPathCollection(newPath, part);
         }
         return path;
+    }
+
+    private Path checkPathCollection(Path newPath, String part) {
+        if(newPath instanceof PluralAttributePath){
+            newPath = handleJoinPath(part);
+        }
+        return newPath;
+    }
+
+    private Path handleJoinPath(String part) {
+        if(!joinMap.containsKey(part)){
+            joinMap.put(part, root.join(part));
+        }
+        return joinMap.get(part);
     }
 
     @SuppressWarnings("unchecked")
